@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-app_solo_cls.py
-Versión simplificada: solo usa clasificador de gestos (sin handedness de MediaPipe).
+app_solo_cls_pose.py
+Versión mejorada: usa clasificador de gestos y agrega seguimiento de persona (MediaPipe Pose).
 """
 
 import cv2
@@ -102,15 +102,18 @@ cap.set(4, 480)
 
 # ---------------- MEDIAPIPE ----------------
 mp_hands = mp.solutions.hands
+mp_pose = mp.solutions.pose
 mp_draw = mp.solutions.drawing_utils
+
 hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1,
                        min_detection_confidence=0.65, min_tracking_confidence=0.6)
+pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
 last_label = None
 consec_count = 0
 last_action_time = 0
 
-print(f"🚀 Inicio app_solo_cls (threshold={args.threshold}, consec={args.consec}, cooldown={args.cooldown})")
+print(f"🚀 Inicio app_solo_cls_pose (threshold={args.threshold}, consec={args.consec}, cooldown={args.cooldown})")
 try:
     while True:
         ret, frame = cap.read()
@@ -123,8 +126,23 @@ try:
 
         img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(img_rgb)
+        results_pose = pose.process(img_rgb)
         display = frame.copy()
 
+        # 🔹 SEGUIMIENTO DE PERSONA (Nariz)
+        if results_pose.pose_landmarks:
+            h, w, _ = frame.shape
+            nose = results_pose.pose_landmarks.landmark[mp_pose.PoseLandmark.NOSE]
+            x_nose = int(nose.x * w)
+            y_nose = int(nose.y * h)
+            cv2.circle(display, (x_nose, y_nose), 10, (0, 255, 255), -1)
+            cv2.putText(display, "Persona detectada", (10, 430),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        else:
+            cv2.putText(display, "Persona NO detectada", (10, 430),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+        # 🔹 DETECCIÓN DE MANO Y GESTO
         classifier_label = None
         classifier_prob = None
 
@@ -132,7 +150,6 @@ try:
             hand_lm = results.multi_hand_landmarks[0]
             mp_draw.draw_landmarks(display, hand_lm, mp_hands.HAND_CONNECTIONS)
 
-            # Predicción con clasificador
             datos = preprocess_hand_landmarks(hand_lm, use_z=use_z)
             if scaler is not None:
                 try:
@@ -155,7 +172,7 @@ try:
             except Exception as e:
                 print("❌ Error predicción:", e)
 
-            # Mostrar info en pantalla
+            # Mostrar info
             if classifier_label is not None:
                 cv2.putText(display, f"Cls: {classifier_label} ({classifier_prob:.2f})",
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -188,20 +205,22 @@ try:
                         print(f"[ACTION] {final_action} (cls={classifier_label}, prob={classifier_prob})")
                     last_action_time = now
                     consec_count = 0
-
         else:
             cv2.putText(display, "Mano NO detectada", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
             last_label = None
             consec_count = 0
 
-        cv2.imshow("Gestos - SOLO CLS", display)
+        # 🔹 MOSTRAR RESULTADO FINAL
+        cv2.imshow("Gestos + Seguimiento Persona", display)
         key = cv2.waitKey(1) & 0xFF
         if key == 27 or key == ord('q'):
             break
+
 except KeyboardInterrupt:
     pass
 finally:
     cap.release()
     cv2.destroyAllWindows()
     hands.close()
+    pose.close()
