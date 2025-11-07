@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
 app_solo_cls_pose.py
-Versión mejorada: usa clasificador de gestos y agrega seguimiento de persona (MediaPipe Pose).
+Versión mejorada: usa clasificador de gestos y agrega seguimiento de persona (MediaPipe Pose + control de servos por WiFi).
 """
+
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))  # ✅ asegura que se encuentre control_servos.py
+
+from control import mover_servo
 
 import cv2
 import mediapipe as mp
@@ -12,12 +17,11 @@ import pickle
 import time
 import argparse
 from pathlib import Path
-import sys
 
 # ---------------- ARGUMENTOS ----------------
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", "-m", default="modelo_gestos.pkl", help="Ruta al modelo de gestos")
-parser.add_argument("--camera", "-c", default="http://10.187.208.231:81/stream", help="Fuente de la cámara")
+parser.add_argument("--camera", "-c", default="http://10.187.208.231:81/stream", help="Fuente de la cámara (ESP32-CAM)")
 parser.add_argument("--threshold", type=float, default=0.6, help="Probabilidad mínima para aceptar predicción")
 parser.add_argument("--consec", type=int, default=3, help="Frames consecutivos requeridos")
 parser.add_argument("--cooldown", type=float, default=0.8, help="Cooldown entre acciones")
@@ -113,7 +117,14 @@ last_label = None
 consec_count = 0
 last_action_time = 0
 
+# ---------------- VARIABLES DE SERVO ----------------
+pan = 90
+tilt = 90
+last_move_time = 0
+move_delay = 0.2  # segundos entre actualizaciones (reduce sobrecarga Wi-Fi)
+
 print(f"🚀 Inicio app_solo_cls_pose (threshold={args.threshold}, consec={args.consec}, cooldown={args.cooldown})")
+
 try:
     while True:
         ret, frame = cap.read()
@@ -138,6 +149,19 @@ try:
             cv2.circle(display, (x_nose, y_nose), 10, (0, 255, 255), -1)
             cv2.putText(display, "Persona detectada", (10, 430),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+            # --- Control de servos según posición del rostro ---
+            frame_h, frame_w = frame.shape[:2]
+            cx, cy = x_nose, y_nose
+            now = time.time()
+
+            if now - last_move_time >= move_delay:  # evita enviar comandos cada frame
+                pan = 90 + (cx - frame_w // 2) // 10
+                tilt = 90 - (cy - frame_h // 2) // 10
+                pan = max(0, min(180, pan))
+                tilt = max(0, min(180, tilt))
+                mover_servo(pan=pan, tilt=tilt)
+                last_move_time = now
         else:
             cv2.putText(display, "Persona NO detectada", (10, 430),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
@@ -161,10 +185,7 @@ try:
                     probs = clf.predict_proba(datos)[0]
                     idx = int(np.argmax(probs))
                     classifier_prob = float(probs[idx])
-                    if classes is not None:
-                        classifier_label = classes[idx]
-                    else:
-                        classifier_label = str(clf.classes_[idx])
+                    classifier_label = classes[idx] if classes is not None else str(clf.classes_[idx])
                 else:
                     pred = clf.predict(datos)[0]
                     classifier_label = str(pred)
@@ -172,19 +193,15 @@ try:
             except Exception as e:
                 print("❌ Error predicción:", e)
 
-            # Mostrar info
             if classifier_label is not None:
                 cv2.putText(display, f"Cls: {classifier_label} ({classifier_prob:.2f})",
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
-            # Determinar acción
+            # Debounce y acciones
             final_action = None
-            if classifier_label is not None and classifier_prob >= args.threshold:
-                final_action = map_action_key_from_label_text(
-                    classifier_label, args.next_key, args.prev_key
-                )
+            if classifier_label and classifier_prob >= args.threshold:
+                final_action = map_action_key_from_label_text(classifier_label, args.next_key, args.prev_key)
 
-            # Debounce
             if final_action is None:
                 last_label = None
                 consec_count = 0
@@ -194,9 +211,6 @@ try:
                 else:
                     last_label = final_action
                     consec_count = 1
-
-                cv2.putText(display, f"Consec: {consec_count}", (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 0), 2)
 
                 now = time.time()
                 if consec_count >= args.consec and (now - last_action_time) >= args.cooldown:
