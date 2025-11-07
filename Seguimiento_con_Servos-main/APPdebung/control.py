@@ -1,14 +1,23 @@
-import requests
+import serial
+import time
 
-ESP32_IP = "http://10.187.208.231"  # cambia por tu IP real de la ESP32-CAM
+ESP32_PORT = "COM8"
+BAUD_RATE = 115200
+
+try:
+    ser = serial.Serial(ESP32_PORT, BAUD_RATE, timeout=1)
+    time.sleep(2)
+    print(f"✅ Conectado a {ESP32_PORT}")
+except Exception as e:
+    print(f"❌ No se pudo abrir {ESP32_PORT}: {e}")
+    ser = None
 
 def mover_servo(pan=None, tilt=None):
-    """Envía comandos a la ESP32-CAM para mover los servos"""
+    if ser is None:
+        print("⚠️ No hay conexión serial activa.")
+        return
     try:
-        if pan is not None:
-            requests.get(f"{ESP32_IP}/?PAN={int(pan)}", timeout=0.3)
-        if tilt is not None:
-            requests.get(f"{ESP32_IP}/?TILT={int(tilt)}", timeout=0.3)
+        comando = f"x:{int(pan)},y:{int(tilt)}\n"
+        ser.write(comando.encode('utf-8'))
     except Exception as e:
-        print("⚠️ Error al enviar comando a servos:", e)
-
+        print("⚠️ Error al enviar comando por Serial:", e)

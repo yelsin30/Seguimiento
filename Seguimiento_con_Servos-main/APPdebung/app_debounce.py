@@ -21,7 +21,7 @@ from pathlib import Path
 # ---------------- ARGUMENTOS ----------------
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", "-m", default="modelo_gestos.pkl", help="Ruta al modelo de gestos")
-parser.add_argument("--camera", "-c", default="http://10.187.208.231:81/stream", help="Fuente de la cámara (ESP32-CAM)")
+parser.add_argument("--camera", "-c", default="http://10.59.110.231:81/stream", help="Fuente de la cámara (ESP32-CAM)")
 parser.add_argument("--threshold", type=float, default=0.6, help="Probabilidad mínima para aceptar predicción")
 parser.add_argument("--consec", type=int, default=3, help="Frames consecutivos requeridos")
 parser.add_argument("--cooldown", type=float, default=0.8, help="Cooldown entre acciones")
