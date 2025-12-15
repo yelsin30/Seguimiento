@@ -1,7 +1,7 @@
 import requests
 
 # ✅ IP actual de tu ESP32-CAM
-ESP32_IP = "http://10.18.122.231"
+ESP32_IP = "http://10.18.122.142"
 
 def mover_servo(pan=None, tilt=None):
     """Envía comandos a la ESP32-CAM para mover los servos por WiFi."""
